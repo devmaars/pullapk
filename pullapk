@@ -1,0 +1,60 @@
+#!/bin/bash
+
+# Check if package name is provided
+if [ -z "$1" ]; then
+  echo "Usage: $0 <package_name> [<device_serial>]"
+  exit 1
+fi
+
+PACKAGE_NAME=$1
+DEVICE_SERIAL=$2
+
+# Function to pull APK from device
+pull_apk() {
+  local base_apk_path=$1
+  local output_path=$2
+  local serial_option=$3
+
+  # Check if path exists on device
+  if adb $serial_option shell "[ -f $base_apk_path ]"; then
+    adb $serial_option pull "$base_apk_path" "$output_path"
+  else
+    echo "APK path $base_apk_path does not exist on the device."
+  fi
+}
+
+# Check if any devices are connected
+DEVICE_COUNT=$(adb devices | grep -w 'device' | wc -l)
+
+if [ "$DEVICE_COUNT" -eq 0 ]; then
+  echo "No devices connected."
+  exit 1
+elif [ "$DEVICE_COUNT" -gt 1 ]; then
+  if [ -z "$DEVICE_SERIAL" ]; then
+    echo "Multiple devices connected. Please specify a device serial number."
+    exit 1
+  else
+    SERIAL_OPTION="-s $DEVICE_SERIAL"
+  fi
+else
+  SERIAL_OPTION=""
+fi
+
+# Get the list of APKs for the package (handle split APKs)
+APK_PATHS=$(adb $SERIAL_OPTION shell pm path "$PACKAGE_NAME" | tr -d '\r' | awk -F':' '{print $2}')
+
+if [ -z "$APK_PATHS" ]; then
+  echo "No APKs found for package: $PACKAGE_NAME"
+  exit 1
+fi
+
+# Pull each APK found, naming it with the package name
+INDEX=1
+for APK_PATH in $APK_PATHS; do
+  OUTPUT_FILE="${PACKAGE_NAME}_part${INDEX}.apk"
+  echo "Pulling $OUTPUT_FILE from $APK_PATH"
+  pull_apk "$APK_PATH" "$OUTPUT_FILE" "$SERIAL_OPTION"
+  INDEX=$((INDEX + 1))
+done
+
+echo "Pulling completed."
